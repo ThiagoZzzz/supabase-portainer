@@ -25,7 +25,7 @@ services:
       test:
         - CMD
         - curl
-        - http://localhost:4000/health
+        - ${HOST_IP}:4000/health
       timeout: 5s
       interval: 5s
       retries: 10
@@ -48,7 +48,7 @@ services:
         condition: service_healthy
         required: true
     environment:
-      API_EXTERNAL_URL: http://localhost:8000
+      API_EXTERNAL_URL: HOST_IP:8000
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: "9999"
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
@@ -83,7 +83,7 @@ services:
         - --no-verbose
         - --tries=1
         - --spider
-        - http://localhost:9999/health
+        - ${HOST_IP}:9999/health
       timeout: 5s
       interval: 5s
       retries: 3
@@ -386,7 +386,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - 'curl -sSfL --head -o /dev/null -H "Authorization: Bearer ${ANON_KEY}" http://localhost:4000/api/tenants/realtime-dev/health'
+        - 'curl -sSfL --head -o /dev/null -H "Authorization: Bearer ${ANON_KEY}" ${HOST_IP}:4000/api/tenants/realtime-dev/health'
       timeout: 5s
       interval: 5s
       retries: 3
@@ -460,7 +460,7 @@ services:
         - --no-verbose
         - --tries=1
         - --spider
-        - http://localhost:5000/status
+        - ${HOST_IP}:5000/status
       timeout: 5s
       interval: 5s
       retries: 3

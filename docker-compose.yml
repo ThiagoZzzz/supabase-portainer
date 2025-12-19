@@ -100,9 +100,9 @@ services:
       - log_min_messages=fatal
     container_name: supabase-db
     depends_on:
-      vector:
-        condition: service_healthy
-        required: true
+      # vector:
+      #   condition: service_healthy
+      #   required: true
     environment:
       JWT_EXP: "3600"
       JWT_SECRET: ${JWT_SECRET}

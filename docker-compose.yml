@@ -1,0 +1,568 @@
+name: supabase
+services:
+  analytics:
+    container_name: supabase-analytics
+    depends_on:
+      db:
+        condition: service_healthy
+        required: true
+    environment:
+      DB_DATABASE: _supabase
+      DB_HOSTNAME: db
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_PORT: "${POSTGRES_PORT}"
+      DB_SCHEMA: _analytics
+      DB_USERNAME: supabase_admin
+      LOGFLARE_FEATURE_FLAG_OVERRIDE: multibackend=true
+      LOGFLARE_NODE_HOST: 127.0.0.1
+      LOGFLARE_PRIVATE_ACCESS_TOKEN: your-super-secret-and-long-logflare-key-private
+      LOGFLARE_PUBLIC_ACCESS_TOKEN: your-super-secret-and-long-logflare-key-public
+      LOGFLARE_SINGLE_TENANT: "true"
+      LOGFLARE_SUPABASE_MODE: "true"
+      POSTGRES_BACKEND_SCHEMA: _analytics
+      POSTGRES_BACKEND_URL: postgresql://supabase_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/_supabase
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - ${HOST_IP}:4000/health
+      timeout: 5s
+      interval: 5s
+      retries: 10
+    image: supabase/logflare:1.26.25
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 4000
+        published: "4000"
+        protocol: tcp
+    restart: unless-stopped
+  auth:
+    container_name: supabase-auth
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+      db:
+        condition: service_healthy
+        required: true
+    environment:
+      API_EXTERNAL_URL: ${HOST_IP}:8000
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: "9999"
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "true"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: "3600"
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_SITE_URL: ${SITE_URL}
+      GOTRUE_SMS_AUTOCONFIRM: "true"
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS}
+      GOTRUE_SMTP_PORT: "${SMTP_PORT}"
+      GOTRUE_SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      GOTRUE_SMTP_USER: ${SMTP_USER}
+      GOTRUE_URI_ALLOW_LIST: ""
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - ${HOST_IP}:9999/health
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    image: supabase/gotrue:v2.183.0
+    networks:
+      default: null
+    restart: unless-stopped
+  db:
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+      - -c
+      - log_min_messages=fatal
+    container_name: supabase-db
+    depends_on:
+      vector:
+        condition: service_healthy
+        required: true
+    environment:
+      JWT_EXP: "3600"
+      JWT_SECRET: ${JWT_SECRET}
+      PGDATABASE: ${POSTGRES_DB}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGPORT: "${POSTGRES_PORT}"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRESS_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PORT: "${POSTGRES_PORT}"
+    healthcheck:
+      test:
+        - CMD
+        - pg_isready
+        - -U
+        - postgres
+        - -h
+        - localhost
+      timeout: 5s
+      interval: 5s
+      retries: 10
+    image: supabase/postgres:15.8.1.085
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 5432
+        published: "5432"
+        protocol: tcp
+      - mode: ingress
+        target: 5432
+        published: "5433"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./volumes/db/realtime.sql
+        target: /docker-entrypoint-initdb.d/migrations/99-realtime.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/webhooks.sql
+        target: /docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/roles.sql
+        target: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/jwt.sql
+        target: /docker-entrypoint-initdb.d/init-scripts/99-jwt.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/data
+        target: /var/lib/postgresql/data
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/_supabase.sql
+        target: /docker-entrypoint-initdb.d/migrations/97-_supabase.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/logs.sql
+        target: /docker-entrypoint-initdb.d/migrations/99-logs.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: bind
+        source: ./volumes/db/pooler.sql
+        target: /docker-entrypoint-initdb.d/migrations/99-pooler.sql
+        bind:
+          selinux: Z
+          create_host_path: true
+      - type: volume
+        source: db-config
+        target: /etc/postgresql-custom
+        volume: {}
+  functions:
+    command:
+      - start
+      - --main-service
+      - /home/deno/functions/main
+    container_name: supabase-edge-functions
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_DB_URL: postgresql://postgres:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${API_EXTERNAL_URL}
+      VERIFY_JWT: "false"
+    image: supabase/edge-runtime:v1.69.28
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./volumes/functions
+        target: /home/deno/functions
+        bind:
+          selinux: Z
+          create_host_path: true
+  imgproxy:
+    container_name: supabase-imgproxy
+    environment:
+      IMGPROXY_BIND: :5001
+      IMGPROXY_ENABLE_WEBP_DETECTION: "${IMGPROXY_ENABLE_WEBP_DETECTION}"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+    healthcheck:
+      test:
+        - CMD
+        - imgproxy
+        - health
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    image: darthsim/imgproxy:v3.8.0
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./volumes/storage
+        target: /var/lib/storage
+        bind:
+          selinux: z
+          create_host_path: true
+  kong:
+    container_name: supabase-kong
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+    entrypoint:
+      - bash
+      - -c
+      - eval "echo \"$$(cat ~/temp.yml)\"" > ~/kong.yml && /docker-entrypoint.sh kong docker-start
+    environment:
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,request-termination,ip-restriction
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    image: kong:2.8.1
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 8003
+        published: "${KONG_HTTP_PORT}"
+        protocol: tcp
+      - mode: ingress
+        target: 8443
+        published: "${KONG_HTTPS_PORT}"
+        protocol: tcp
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./volumes/api/kong.yml
+        target: /home/kong/temp.yml
+        read_only: true
+        bind:
+          selinux: z
+          create_host_path: true
+  meta:
+    container_name: supabase-meta
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+      db:
+        condition: service_healthy
+        required: true
+    environment:
+      CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+      PG_META_DB_HOST: ${POSTGRES_HOST}
+      PG_META_DB_NAME: ${POSTGRES_DB}
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      PG_META_DB_PORT: "${POSTGRES_PORT}"
+      PG_META_DB_USER: supabase_admin
+      PG_META_PORT: "8080"
+    image: supabase/postgres-meta:v0.93.1
+    networks:
+      default: null
+    restart: unless-stopped
+  minio:
+    command:
+      - server
+      - --console-address
+      - :9001
+      - /data
+    environment:
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://minio:9000/minio/health/live
+      timeout: 10s
+      interval: 2s
+      retries: 5
+    image: minio/minio
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 9000
+        published: "9000"
+        protocol: tcp
+      - mode: ingress
+        target: 9001
+        published: "9001"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: ./volumes/storage
+        target: /data
+        bind:
+          selinux: z
+          create_host_path: true
+  minio-createbucket:
+    depends_on:
+      minio:
+        condition: service_healthy
+        required: true
+    entrypoint:
+      - /bin/sh
+      - -c
+      - ' /usr/bin/mc alias set supa-minio http://minio:9000 supa-storage secret1234; /usr/bin/mc mb supa-minio/stub; exit 0; '
+    image: minio/mc
+    networks:
+      default: null
+  realtime:
+    container_name: realtime-dev.supabase-realtime
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+      db:
+        condition: service_healthy
+        required: true
+    environment:
+      API_JWT_SECRET: ${JWT_SECRET}
+      APP_NAME: realtime
+      DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+      DB_ENC_KEY: supabaserealtime
+      DB_HOST: ${POSTGRES_HOST}
+      DB_NAME: ${POSTGRES_DB}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_PORT: "${POSTGRES_PORT}"
+      DB_USER: supabase_admin
+      DNS_NODES: ''''''
+      ERL_AFLAGS: -proto_dist inet_tcp
+      PORT: "4000"
+      RLIMIT_NOFILE: "10000"
+      RUN_JANITOR: "true"
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      SEED_SELF_HOST: "true"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl -sSfL --head -o /dev/null -H "Authorization: Bearer ${ANON_KEY}" ${HOST_IP}:4000/api/tenants/realtime-dev/health'
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    image: supabase/realtime:v2.68.0
+    networks:
+      default: null
+    restart: unless-stopped
+  rest:
+    command:
+      - postgrest
+    container_name: supabase-rest
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+      db:
+        condition: service_healthy
+        required: true
+    environment:
+      PGRST_APP_SETTINGS_JWT_EXP: "3600"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+    image: postgrest/postgrest:v14.1
+    networks:
+      default: null
+    restart: unless-stopped
+  storage:
+    container_name: supabase-storage
+    depends_on:
+      db:
+        condition: service_healthy
+        required: true
+      imgproxy:
+        condition: service_started
+        required: true
+      minio:
+        condition: service_healthy
+        required: true
+      rest:
+        condition: service_started
+        required: true
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      AWS_ACCESS_KEY_ID: supa-storage
+      AWS_DEFAULT_REGION: stub
+      AWS_SECRET_ACCESS_KEY: secret1234
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      FILE_SIZE_LIMIT: "52428800"
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      GLOBAL_S3_BUCKET: stub
+      GLOBAL_S3_ENDPOINT: http://minio:9000
+      GLOBAL_S3_FORCE_PATH_STYLE: "true"
+      GLOBAL_S3_PROTOCOL: http
+      IMGPROXY_URL: http://imgproxy:5001
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      POSTGREST_URL: http://rest:3000
+      REGION: stub
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      STORAGE_BACKEND: s3
+      TENANT_ID: stub
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - ${HOST_IP}:5000/status
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    image: supabase/storage-api:v1.11.13
+    networks:
+      default: null
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./volumes/storage
+        target: /var/lib/storage
+        bind:
+          selinux: z
+          create_host_path: true
+  studio:
+    container_name: supabase-studio
+    depends_on:
+      analytics:
+        condition: service_healthy
+        required: true
+    environment:
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      DEFAULT_ORGANIZATION_NAME: Default Organization
+      DEFAULT_PROJECT_NAME: Default Project
+      HOSTNAME: '::'
+      LOGFLARE_API_KEY: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+      LOGFLARE_PRIVATE_ACCESS_TOKEN: ${LOGFLARE_PRIVATE_ACCESS_TOKEN}
+      LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+      LOGFLARE_URL: http://analytics:4000
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+      NEXT_PUBLIC_ENABLE_LOGS: "true"
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      PG_META_CRYPTO_KEY: ${PG_META_CRYPTO_KEY}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PORT: "${POSTGRES_PORT}"
+      STUDIO_PG_META_URL: http://meta:8080
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_URL: ${API_EXTERNAL_URL}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://studio:3000/api/platform/profile').then((r) => {if (r.status !== 200) throw new Error(r.status)})
+      timeout: 10s
+      interval: 5s
+      retries: 3
+    image: supabase/studio:2025.12.09-sha-434634f
+    networks:
+      default: null
+    ports:
+      - mode: ingress
+        target: 3004
+        published: "3004"
+        protocol: tcp
+    restart: unless-stopped
+  vector:
+    command:
+      - --config
+      - /etc/vector/vector.yml
+    container_name: supabase-vector
+    environment:
+      LOGFLARE_PUBLIC_ACCESS_TOKEN: ${LOGFLARE_PUBLIC_ACCESS_TOKEN}
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --no-verbose
+        - --tries=1
+        - --spider
+        - http://vector:9001/health
+      timeout: 5s
+      interval: 5s
+      retries: 3
+    image: timberio/vector:0.28.1-alpine
+    networks:
+      default: null
+    restart: unless-stopped
+    security_opt:
+      - label=disable
+    volumes:
+      - type: bind
+        source: ./volumes/logs/vector.yml
+        target: /etc/vector/vector.yml
+        read_only: true
+        bind:
+          selinux: z
+          create_host_path: true
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+        bind:
+          selinux: z
+          create_host_path: true
+networks:
+  default:
+    name: supabase_default
+volumes:
+  db-config:
+    name: supabase_db-config

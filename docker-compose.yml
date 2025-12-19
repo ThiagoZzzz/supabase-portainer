@@ -99,7 +99,7 @@ services:
       - -c
       - log_min_messages=fatal
     container_name: supabase-db
-    depends_on:
+    # depends_on:
       # vector:
       #   condition: service_healthy
       #   required: true
